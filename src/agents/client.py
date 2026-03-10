@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import anthropic
 
@@ -43,22 +43,18 @@ class AnthropicClient:
         self,
         messages: list[dict],
         system: str | None = None,
+        tools: list[dict] | None = None,
     ):
-        """Return a ``MessageStreamManager`` context manager for streaming.
-
-        Usage::
-
-            with client.stream_message(messages, system) as stream:
-                for text in stream.text_stream:
-                    print(text, end="", flush=True)
-        """
-        kwargs: dict = dict(
+        """Return a ``MessageStreamManager`` context manager for streaming."""
+        kwargs: dict[str, Any] = dict(
             model=self.model,
             max_tokens=self.max_tokens,
             messages=messages,
         )
         if system:
             kwargs["system"] = system
+        if tools:
+            kwargs["tools"] = tools
         try:
             return self._client.messages.stream(**kwargs)
         except anthropic.AuthenticationError as exc:
@@ -82,18 +78,20 @@ class AnthropicClient:
         self,
         messages: list[dict],
         system: str | None = None,
-    ) -> str:
-        """Non-streaming variant that returns the full assistant text."""
-        kwargs: dict = dict(
+        tools: list[dict] | None = None,
+    ):
+        """Non-streaming variant that returns the full response Message object."""
+        kwargs: dict[str, Any] = dict(
             model=self.model,
             max_tokens=self.max_tokens,
             messages=messages,
         )
         if system:
             kwargs["system"] = system
+        if tools:
+            kwargs["tools"] = tools
         try:
-            response = self._client.messages.create(**kwargs)
-            return response.content[0].text
+            return self._client.messages.create(**kwargs)
         except anthropic.AuthenticationError as exc:
             raise ShopperAPIError(
                 "Authentication failed — check your ANTHROPIC_API_KEY."

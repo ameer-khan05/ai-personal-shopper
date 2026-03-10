@@ -14,6 +14,11 @@ from rich.text import Text
 import config
 from src.agents.client import AnthropicClient, ShopperAPIError
 from src.agents.shopping_agent import ShoppingAgent
+from src.tools.shopping_search import ShoppingSearchTool
+from src.tools.comparison_tool import ComparisonTool
+from src.tools.tool_registry import ToolRegistry
+from src.memory.preferences import PreferenceStore
+from src.memory.conversation_store import ConversationStore
 
 console = Console()
 
@@ -66,12 +71,16 @@ def _stream_with_spinner(agent: ShoppingAgent, user_message: str) -> str:
         console.file.write(text)
         console.file.flush()
 
-    response = agent.chat(user_message, on_token=on_token)
+    def on_status(msg: str) -> None:
+        status.update(f"[cyan]{msg}")
+
+    response = agent.chat(user_message, on_token=on_token, on_status=on_status)
 
     if first_token:
-        # No tokens arrived (empty response edge case) — stop spinner.
+        # No tokens arrived via streaming (tool-use path) — stop spinner.
         status.stop()
         console.print("[bold cyan]Assistant[/bold cyan]")
+        console.print(response)
 
     # Newline after streamed output.
     console.print()
@@ -82,7 +91,7 @@ def _stream_with_spinner(agent: ShoppingAgent, user_message: str) -> str:
 # Chat loop
 # ---------------------------------------------------------------------------
 
-def chat_loop(agent: ShoppingAgent) -> None:
+def chat_loop(agent: ShoppingAgent, conversation_store: ConversationStore | None = None) -> None:
     """Run the interactive input loop until the user quits."""
     while True:
         try:
@@ -103,6 +112,10 @@ def chat_loop(agent: ShoppingAgent) -> None:
         except ShopperAPIError as exc:
             console.print(f"\n[bold red]Error:[/bold red] {exc}")
 
+    # Save conversation on exit.
+    if conversation_store and agent.conversation_history:
+        conversation_store.save_conversation(agent.conversation_history)
+
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -114,9 +127,39 @@ def main() -> None:
     print_welcome()
 
     client = AnthropicClient()
-    agent = ShoppingAgent(client)
 
-    chat_loop(agent)
+    # Set up tool registry.
+    registry = ToolRegistry()
+    try:
+        search_tool = ShoppingSearchTool()
+        registry.register(search_tool)
+    except SystemExit:
+        console.print("[yellow]SerpAPI key not set — product search disabled.[/yellow]")
+
+    comparison_tool = ComparisonTool()
+    registry.register(comparison_tool)
+
+    # Set up preference store.
+    pref_store: PreferenceStore | None = None
+    try:
+        pref_store = PreferenceStore()
+    except Exception:
+        console.print("[yellow]Preference store unavailable.[/yellow]")
+
+    # Set up conversation store.
+    conv_store: ConversationStore | None = None
+    try:
+        conv_store = ConversationStore()
+    except Exception:
+        console.print("[yellow]Conversation store unavailable.[/yellow]")
+
+    agent = ShoppingAgent(
+        client,
+        tool_registry=registry,
+        preference_store=pref_store,
+    )
+
+    chat_loop(agent, conversation_store=conv_store)
 
 
 if __name__ == "__main__":

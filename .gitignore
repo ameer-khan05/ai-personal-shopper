@@ -36,6 +36,7 @@ coverage.xml
 
 # ChromaDB persistent storage
 chroma_data/
+data/
 
 # Misc
 *.log

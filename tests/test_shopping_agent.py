@@ -100,6 +100,13 @@ class TestShoppingAgentChat:
             system="custom",
         )
 
+    def test_accepts_tool_registry(self):
+        from src.tools.tool_registry import ToolRegistry
+        client = _make_mock_client("ok")
+        registry = ToolRegistry()
+        agent = ShoppingAgent(client, tool_registry=registry)
+        assert agent.tool_registry is registry
+
     def test_on_token_callback(self):
         chunks: list[str] = []
         stream = MagicMock()
