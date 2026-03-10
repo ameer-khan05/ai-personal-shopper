@@ -13,7 +13,7 @@ from rich.text import Text
 
 import config
 from src.agents.client import AnthropicClient, ShopperAPIError
-from src.agents.shopping_agent import ShoppingAgent
+from src.agents.pipeline import AgentPipeline
 from src.tools.shopping_search import ShoppingSearchTool
 from src.tools.comparison_tool import ComparisonTool
 from src.tools.tool_registry import ToolRegistry
@@ -56,8 +56,8 @@ def print_welcome() -> None:
     console.print()
 
 
-def _stream_with_spinner(agent: ShoppingAgent, user_message: str) -> str:
-    """Stream the agent response, showing a spinner until the first token."""
+def _stream_with_spinner(pipeline: AgentPipeline, user_message: str) -> str:
+    """Show a spinner while the pipeline processes, then print the response."""
     status = console.status("[cyan]Thinking...", spinner="dots")
     status.start()
     first_token = True
@@ -74,15 +74,15 @@ def _stream_with_spinner(agent: ShoppingAgent, user_message: str) -> str:
     def on_status(msg: str) -> None:
         status.update(f"[cyan]{msg}")
 
-    response = agent.chat(user_message, on_token=on_token, on_status=on_status)
+    response = pipeline.chat(user_message, on_token=on_token, on_status=on_status)
 
     if first_token:
-        # No tokens arrived via streaming (tool-use path) — stop spinner.
+        # Pipeline path (non-streaming) — stop spinner and print.
         status.stop()
         console.print("[bold cyan]Assistant[/bold cyan]")
         console.print(response)
 
-    # Newline after streamed output.
+    # Newline after output.
     console.print()
     return response
 
@@ -91,7 +91,10 @@ def _stream_with_spinner(agent: ShoppingAgent, user_message: str) -> str:
 # Chat loop
 # ---------------------------------------------------------------------------
 
-def chat_loop(agent: ShoppingAgent, conversation_store: ConversationStore | None = None) -> None:
+def chat_loop(
+    pipeline: AgentPipeline,
+    conversation_store: ConversationStore | None = None,
+) -> None:
     """Run the interactive input loop until the user quits."""
     while True:
         try:
@@ -108,13 +111,13 @@ def chat_loop(agent: ShoppingAgent, conversation_store: ConversationStore | None
             break
 
         try:
-            _stream_with_spinner(agent, user_input)
+            _stream_with_spinner(pipeline, user_input)
         except ShopperAPIError as exc:
             console.print(f"\n[bold red]Error:[/bold red] {exc}")
 
     # Save conversation on exit.
-    if conversation_store and agent.conversation_history:
-        conversation_store.save_conversation(agent.conversation_history)
+    if conversation_store and pipeline.conversation_history:
+        conversation_store.save_conversation(pipeline.conversation_history)
 
 
 # ---------------------------------------------------------------------------
@@ -153,13 +156,14 @@ def main() -> None:
     except Exception:
         console.print("[yellow]Conversation store unavailable.[/yellow]")
 
-    agent = ShoppingAgent(
+    # Build the multi-agent pipeline.
+    pipeline = AgentPipeline(
         client,
         tool_registry=registry,
         preference_store=pref_store,
     )
 
-    chat_loop(agent, conversation_store=conv_store)
+    chat_loop(pipeline, conversation_store=conv_store)
 
 
 if __name__ == "__main__":
